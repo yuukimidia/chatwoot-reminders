@@ -1,0 +1,87 @@
+{
+  "name": "Reminder - Schedule",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "schedule-reminder",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.WEBHOOK_SHARED_SECRET }}",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-secret",
+      "name": "Check Secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO scheduled_messages (account_id, inbox_id, conversation_id, contact_id, contact_name, contact_phone, appointment_at, reminder_message, send_at, created_by, status)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{ [$json.body.account_id, $json.body.inbox_id, $json.body.conversation_id, $json.body.contact_id, $json.body.contact_name, $json.body.contact_phone, $json.body.appointment_at, $json.body.reminder_message, $json.body.send_at, $json.body.created_by] }}"
+        }
+      },
+      "id": "insert-reminder",
+      "name": "Insert Reminder",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [440, -80],
+      "credentials": { "postgres": { "id": "REPLACE_ME", "name": "Postgres - Reminders" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": { "responseCode": 201 }
+      },
+      "id": "respond-ok",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [660, -80]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"error\": \"unauthorized\" }",
+        "options": { "responseCode": 401 }
+      },
+      "id": "respond-unauthorized",
+      "name": "Respond Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [440, 80]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Check Secret", "type": "main", "index": 0 }]] },
+    "Check Secret": {
+      "main": [
+        [{ "node": "Insert Reminder", "type": "main", "index": 0 }],
+        [{ "node": "Respond Unauthorized", "type": "main", "index": 0 }]
+      ]
+    },
+    "Insert Reminder": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] }
+  }
+}
