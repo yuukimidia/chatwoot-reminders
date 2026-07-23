@@ -27,18 +27,21 @@ export default function Page() {
   const [reminderTime, setReminderTime] = useState('09:00');
   const [message, setMessage] = useState('');
 
-  // DEBUG TEMPORÁRIO: guarda toda mensagem recebida via postMessage, para
-  // diagnosticar por que o contexto do Chatwoot não está chegando.
-  const [debugEvents, setDebugEvents] = useState<Array<{ origin: string; data: unknown }>>([]);
-
-  // Recebe o contexto (conversation/contact/account) que o Chatwoot injeta no iframe.
-  // Ref: https://www.chatwoot.com/docs/product/others/dashboard-apps
+  // Recebe o contexto (conversation/contact/currentAgent) que o Chatwoot injeta
+  // no iframe. O Chatwoot envia event.data como uma STRING JSON, não como objeto.
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
-      setDebugEvents((prev) => [...prev, { origin: event.origin, data: event.data }].slice(-15));
+      if (typeof event.data !== 'string') return;
 
-      if (event.data?.event === 'appContext') {
-        const data = event.data.data as ChatwootAppContext;
+      let parsed: { event?: string; data?: ChatwootAppContext };
+      try {
+        parsed = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+
+      if (parsed.event === 'appContext' && parsed.data) {
+        const data = parsed.data;
         setContext(data);
         if (!message) {
           setMessage(defaultMessage(data.contact?.name));
@@ -46,12 +49,6 @@ export default function Page() {
       }
     }
     window.addEventListener('message', handleMessage);
-
-    // Alguns eventos do Chatwoot só são reenviados se o app sinalizar que está pronto.
-    if (window.parent !== window) {
-      window.parent.postMessage({ event: 'appReady' }, '*');
-    }
-
     return () => window.removeEventListener('message', handleMessage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -67,7 +64,7 @@ export default function Page() {
     setError(null);
     try {
       const res = await fetch(
-        `/api/reminders?accountId=${ctx.account.id}&conversationId=${ctx.conversation.id}`
+        `/api/reminders?accountId=${ctx.conversation.account_id}&conversationId=${ctx.conversation.id}`
       );
       if (!res.ok) throw new Error('Falha ao carregar lembretes');
       setReminders(await res.json());
@@ -99,7 +96,7 @@ export default function Page() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          account_id: context.account.id,
+          account_id: context.conversation.account_id,
           inbox_id: context.conversation.inbox_id,
           conversation_id: context.conversation.id,
           contact_id: context.contact.id,
@@ -129,7 +126,7 @@ export default function Page() {
       const res = await fetch(`/api/reminders/${id}/cancel`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: context.account.id }),
+        body: JSON.stringify({ accountId: context.conversation.account_id }),
       });
       if (!res.ok) throw new Error('Falha ao cancelar lembrete');
       await loadReminders(context);
@@ -142,23 +139,6 @@ export default function Page() {
     return (
       <div className="container">
         <p className="empty-state">Carregando contexto do Chatwoot…</p>
-        <p style={{ fontSize: 11, color: '#6b7280' }}>
-          Modo debug — mensagens recebidas via postMessage ({debugEvents.length}):
-        </p>
-        <pre
-          style={{
-            fontSize: 10,
-            background: '#f3f4f6',
-            padding: 8,
-            borderRadius: 6,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-          }}
-        >
-          {debugEvents.length === 0
-            ? '(nenhuma mensagem recebida ainda)'
-            : JSON.stringify(debugEvents, null, 2)}
-        </pre>
       </div>
     );
   }

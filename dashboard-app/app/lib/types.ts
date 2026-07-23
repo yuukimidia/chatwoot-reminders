@@ -4,6 +4,7 @@ export interface ChatwootAppContext {
   conversation: {
     id: number;
     inbox_id: number;
+    account_id: number;
   };
   contact: {
     id: number;
@@ -14,9 +15,6 @@ export interface ChatwootAppContext {
     id: number;
     name: string;
     email: string;
-  };
-  account: {
-    id: number;
   };
 }
 
