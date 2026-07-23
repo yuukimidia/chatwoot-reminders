@@ -27,10 +27,16 @@ export default function Page() {
   const [reminderTime, setReminderTime] = useState('09:00');
   const [message, setMessage] = useState('');
 
+  // DEBUG TEMPORÁRIO: guarda toda mensagem recebida via postMessage, para
+  // diagnosticar por que o contexto do Chatwoot não está chegando.
+  const [debugEvents, setDebugEvents] = useState<Array<{ origin: string; data: unknown }>>([]);
+
   // Recebe o contexto (conversation/contact/account) que o Chatwoot injeta no iframe.
   // Ref: https://www.chatwoot.com/docs/product/others/dashboard-apps
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
+      setDebugEvents((prev) => [...prev, { origin: event.origin, data: event.data }].slice(-15));
+
       if (event.data?.event === 'appContext') {
         const data = event.data.data as ChatwootAppContext;
         setContext(data);
@@ -40,6 +46,12 @@ export default function Page() {
       }
     }
     window.addEventListener('message', handleMessage);
+
+    // Alguns eventos do Chatwoot só são reenviados se o app sinalizar que está pronto.
+    if (window.parent !== window) {
+      window.parent.postMessage({ event: 'appReady' }, '*');
+    }
+
     return () => window.removeEventListener('message', handleMessage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -130,6 +142,23 @@ export default function Page() {
     return (
       <div className="container">
         <p className="empty-state">Carregando contexto do Chatwoot…</p>
+        <p style={{ fontSize: 11, color: '#6b7280' }}>
+          Modo debug — mensagens recebidas via postMessage ({debugEvents.length}):
+        </p>
+        <pre
+          style={{
+            fontSize: 10,
+            background: '#f3f4f6',
+            padding: 8,
+            borderRadius: 6,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+          }}
+        >
+          {debugEvents.length === 0
+            ? '(nenhuma mensagem recebida ainda)'
+            : JSON.stringify(debugEvents, null, 2)}
+        </pre>
       </div>
     );
   }
