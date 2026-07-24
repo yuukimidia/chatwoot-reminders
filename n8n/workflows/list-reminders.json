@@ -52,14 +52,26 @@
     },
     {
       "parameters": {
-        "respondWith": "allIncomingItems",
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ json: { rows: $input.all().map(i => i.json) } }];"
+      },
+      "id": "wrap-results",
+      "name": "Wrap Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, -80]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.rows }}",
         "options": {}
       },
       "id": "respond-ok",
       "name": "Respond OK",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [660, -80]
+      "position": [880, -80]
     },
     {
       "parameters": {
@@ -82,6 +94,7 @@
         [{ "node": "Respond Unauthorized", "type": "main", "index": 0 }]
       ]
     },
-    "List Reminders": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] }
+    "List Reminders": { "main": [[{ "node": "Wrap Results", "type": "main", "index": 0 }]] },
+    "Wrap Results": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] }
   }
 }

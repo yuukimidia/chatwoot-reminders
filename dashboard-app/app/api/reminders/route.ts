@@ -22,10 +22,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(reminders);
   } catch (error) {
     console.error(error);
-    return NextResponse.json(
-      { error: 'Falha ao buscar lembretes', debug: (error as Error).message },
-      { status: 502 }
-    );
+    return NextResponse.json({ error: 'Falha ao buscar lembretes' }, { status: 502 });
   }
 }
 
