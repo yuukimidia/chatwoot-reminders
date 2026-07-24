@@ -38,7 +38,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT * FROM scheduled_messages\nWHERE account_id = $1 AND conversation_id = $2\nORDER BY send_at DESC;",
+        "query": "SELECT COALESCE(json_agg(t), '[]'::json) AS rows\nFROM (\n  SELECT * FROM scheduled_messages\n  WHERE account_id = $1 AND conversation_id = $2\n  ORDER BY send_at DESC\n) t;",
         "options": {
           "queryReplacement": "={{ [$json.query.accountId, $json.query.conversationId] }}"
         }
@@ -52,17 +52,6 @@
     },
     {
       "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "return [{ json: { rows: $input.all().map(i => i.json) } }];"
-      },
-      "id": "wrap-results",
-      "name": "Wrap Results",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [660, -80]
-    },
-    {
-      "parameters": {
         "respondWith": "json",
         "responseBody": "={{ $json.rows }}",
         "options": {}
@@ -71,7 +60,7 @@
       "name": "Respond OK",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [880, -80]
+      "position": [660, -80]
     },
     {
       "parameters": {
@@ -94,7 +83,6 @@
         [{ "node": "Respond Unauthorized", "type": "main", "index": 0 }]
       ]
     },
-    "List Reminders": { "main": [[{ "node": "Wrap Results", "type": "main", "index": 0 }]] },
-    "Wrap Results": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] }
+    "List Reminders": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] }
   }
 }
