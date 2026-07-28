@@ -179,7 +179,15 @@ de que o agente voltou a falar manualmente).
 5. Importe também `followup-overview.json`, `followup-update-config.json`
    e `followup-pause.json` — usados pela tela de monitoramento (próxima
    seção). Aponte a credencial Postgres nos respectivos nodes.
-6. Ative todos os workflows.
+6. Importe `followup-auto-assign.json` — não usa Postgres, só a API do
+   Chatwoot. A cada 15 min, varre conversas abertas e **sem atribuição**
+   nos 3 inboxes; se a primeira mensagem bater o padrão de anúncio,
+   atribui ao agente id `1` (ajuste o `assignee_id` fixo no node **Assign
+   Conversation** se quiser outro agente). Isso aciona a notificação
+   nativa do Chatwoot de "conversa atribuída a você" — confira nas suas
+   configurações de perfil do Chatwoot se essa notificação está ativada
+   (push/e-mail/navegador).
+7. Ative todos os workflows.
 
 ### Tela de monitoramento (`/followup`)
 
