@@ -112,3 +112,23 @@ CREATE TABLE IF NOT EXISTS whatsapp_instances (
     instance_name   TEXT NOT NULL,
     uazapi_token    TEXT NOT NULL
 );
+
+-- Configuração editável da régua de follow-up (linha única, id sempre 1).
+-- Controlada pela tela /followup do Dashboard App — permite ligar/desligar
+-- a automação inteira e trocar o texto/foto sem mexer no workflow do n8n.
+CREATE TABLE IF NOT EXISTS followup_config (
+    id                      INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    enabled                 BOOLEAN NOT NULL DEFAULT true,
+    step1_message_template  TEXT NOT NULL DEFAULT '{{name}}?',
+    step2_photo_url         TEXT NOT NULL DEFAULT 'https://chatwoot-reminders.vercel.app/followup-photo.jpg',
+    step2_caption           TEXT NOT NULL DEFAULT '',
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO followup_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+DROP TRIGGER IF EXISTS trg_followup_config_updated_at ON followup_config;
+CREATE TRIGGER trg_followup_config_updated_at
+    BEFORE UPDATE ON followup_config
+    FOR EACH ROW
+    EXECUTE FUNCTION set_updated_at();

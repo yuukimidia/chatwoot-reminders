@@ -13,6 +13,36 @@
     },
     {
       "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM followup_config WHERE id = 1;",
+        "options": {}
+      },
+      "id": "get-config",
+      "name": "Get Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [220, 0],
+      "credentials": { "postgres": { "id": "REPLACE_ME", "name": "Postgres - Reminders" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "leftValue": "={{ $json.enabled }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-enabled",
+      "name": "Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
         "mode": "runOnceForAllItems",
         "jsCode": "return [\n  { json: { inbox_id: 6 } },\n  { json: { inbox_id: 5 } },\n  { json: { inbox_id: 7 } }\n];"
       },
@@ -20,7 +50,7 @@
       "name": "Inboxes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [220, 0]
+      "position": [660, 0]
     },
     {
       "parameters": {
@@ -230,7 +260,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const name = ($json.contact_name || '').replace(/^~/, '').trim();\nconst firstName = name.split(' ')[0] || 'Oi';\nreturn { json: { ...$json, first_name: firstName } };"
+        "jsCode": "const name = ($json.contact_name || '').replace(/^~/, '').trim();\nconst firstName = name.split(' ')[0] || 'Oi';\nconst config = $('Get Config').item.json;\nconst template = config.step1_message_template || '{{name}}?';\nconst message = template.replace(/\\{\\{\\s*name\\s*\\}\\}/gi, firstName);\nreturn { json: { ...$json, first_name: firstName, step1_message: message } };"
       },
       "id": "first-name",
       "name": "First Name",
@@ -248,7 +278,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ content: $json.first_name + '?', message_type: 'outgoing' }) }}",
+        "jsonBody": "={{ JSON.stringify({ content: $json.step1_message, message_type: 'outgoing' }) }}",
         "options": {}
       },
       "id": "send-nudge",
@@ -314,7 +344,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ number: $('Actionable?').item.json.contact_phone.replace(/\\D/g, ''), type: 'image', file: 'https://chatwoot-reminders.vercel.app/followup-photo.jpg', viewOnce: true, caption: '' }) }}",
+        "jsonBody": "={{ JSON.stringify({ number: $('Actionable?').item.json.contact_phone.replace(/\\D/g, ''), type: 'image', file: $('Get Config').item.json.step2_photo_url, viewOnce: true, caption: $('Get Config').item.json.step2_caption }) }}",
         "options": {}
       },
       "id": "send-photo",
@@ -340,7 +370,9 @@
     }
   ],
   "connections": {
-    "Every 15 min": { "main": [[{ "node": "Inboxes", "type": "main", "index": 0 }]] },
+    "Every 15 min": { "main": [[{ "node": "Get Config", "type": "main", "index": 0 }]] },
+    "Get Config": { "main": [[{ "node": "Enabled?", "type": "main", "index": 0 }]] },
+    "Enabled?": { "main": [[{ "node": "Inboxes", "type": "main", "index": 0 }]] },
     "Inboxes": { "main": [[{ "node": "Get Open Conversations", "type": "main", "index": 0 }]] },
     "Get Open Conversations": { "main": [[{ "node": "Split Conversations", "type": "main", "index": 0 }]] },
     "Split Conversations": { "main": [[{ "node": "Agent Spoke Last?", "type": "main", "index": 0 }]] },

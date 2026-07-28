@@ -51,3 +51,30 @@ export interface CreateReminderInput {
   send_at: string;
   created_by: string | null;
 }
+
+export type FollowupStatus = 'watching' | 'step1_sent' | 'step2_sent' | 'stopped' | 'excluded';
+
+export interface FollowupConfig {
+  id: number;
+  enabled: boolean;
+  step1_message_template: string;
+  step2_photo_url: string;
+  step2_caption: string;
+  updated_at: string;
+}
+
+export interface FollowupQueueItem {
+  id: number;
+  conversation_id: number;
+  inbox_id: number;
+  contact_name: string | null;
+  contact_phone: string | null;
+  status: FollowupStatus;
+  next_action: 'nudge' | 'photo' | null;
+  next_action_at: string | null;
+}
+
+export interface FollowupOverview {
+  config: FollowupConfig;
+  queue: FollowupQueueItem[];
+}

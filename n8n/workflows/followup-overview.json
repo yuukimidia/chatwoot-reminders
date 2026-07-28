@@ -1,0 +1,86 @@
+{
+  "name": "Followup - Overview",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "followup-overview",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.WEBHOOK_SHARED_SECRET }}",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-secret",
+      "name": "Check Secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  (SELECT row_to_json(c) FROM (SELECT * FROM followup_config WHERE id = 1) c) AS config,\n  COALESCE(\n    (SELECT json_agg(q) FROM (\n      SELECT\n        fs.id, fs.conversation_id, fs.inbox_id, fs.contact_name, fs.contact_phone, fs.status,\n        CASE WHEN fs.status = 'watching' THEN fs.last_agent_message_at + interval '15 minutes'\n             WHEN fs.status = 'step1_sent' THEN fs.last_agent_message_at + interval '1 day'\n             ELSE NULL END AS next_action_at,\n        CASE WHEN fs.status = 'watching' THEN 'nudge'\n             WHEN fs.status = 'step1_sent' THEN 'photo'\n             ELSE NULL END AS next_action\n      FROM followup_state fs\n      WHERE fs.status IN ('watching','step1_sent')\n      ORDER BY next_action_at\n    ) q),\n    '[]'::json\n  ) AS queue;",
+        "options": {}
+      },
+      "id": "get-overview",
+      "name": "Get Overview",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [440, -80],
+      "credentials": { "postgres": { "id": "REPLACE_ME", "name": "Postgres - Reminders" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [660, -80]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"error\": \"unauthorized\" }",
+        "options": { "responseCode": 401 }
+      },
+      "id": "respond-unauthorized",
+      "name": "Respond Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [440, 80]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Check Secret", "type": "main", "index": 0 }]] },
+    "Check Secret": {
+      "main": [
+        [{ "node": "Get Overview", "type": "main", "index": 0 }],
+        [{ "node": "Respond Unauthorized", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Overview": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] }
+  }
+}

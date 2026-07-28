@@ -172,14 +172,31 @@ de que o agente voltou a falar manualmente).
    `https://sua-instancia.uazapi.com`) nos serviços `n8n_n8n_worker` e
    `n8n_n8n_editor`, do mesmo jeito que as outras (`docker service update
    --env-add ...`).
-4. Importe `n8n/workflows/followup-scan.json`. Ele tem **7 nodes de
+4. Importe `n8n/workflows/followup-scan.json`. Ele tem **8 nodes de
    Postgres** — aponte todos para a credencial `Postgres - Reminders`:
-   Stop If Watching, Upsert Watch, Save Ad Check, Compute Action, Get
-   Uazapi Token, Save Step1, Save Step2.
-5. A foto usada no passo 2 é `dashboard-app/public/followup-photo.jpg`,
-   servida pela URL pública da Vercel — para trocar, basta substituir o
-   arquivo e fazer o deploy de novo.
-6. Ative o workflow.
+   Get Config, Stop If Watching, Upsert Watch, Save Ad Check, Compute
+   Action, Get Uazapi Token, Save Step1, Save Step2.
+5. Importe também `followup-overview.json`, `followup-update-config.json`
+   e `followup-pause.json` — usados pela tela de monitoramento (próxima
+   seção). Aponte a credencial Postgres nos respectivos nodes.
+6. Ative todos os workflows.
+
+### Tela de monitoramento (`/followup`)
+
+Segunda aba no Chatwoot, independente da de agendamento — mostra a fila
+atual, deixa ligar/desligar a automação inteira e trocar a mensagem do
+passo 1 e a foto/legenda do passo 2 **sem mexer em código nem no n8n**.
+
+1. Já está no mesmo Dashboard App da Vercel, na rota `/followup`
+   (ex: `https://chatwoot-reminders.vercel.app/followup`).
+2. Registre como uma **segunda Dashboard App** em cada uma das 3 contas do
+   Chatwoot (Settings → Integrations → Dashboard Apps → Add new): nome
+   "Follow-up", URL apontando para essa rota `/followup`.
+3. O texto do passo 1 aceita o placeholder `{{name}}` (primeiro nome do
+   contato). A foto pode ser trocada só colando uma nova URL — não precisa
+   ser a hospedada na Vercel, qualquer URL pública de imagem funciona.
+4. O botão **Pausar** na fila marca aquela conversa específica como
+   `excluded` — para de vigiar só ela, sem afetar as outras.
 
 > Este workflow assume `account_id = 1` fixo (todos os 3 clientes são
 > inboxes dentro da mesma conta do Chatwoot). Se isso não for verdade no
