@@ -53,3 +53,62 @@ CREATE TRIGGER trg_scheduled_messages_updated_at
     BEFORE UPDATE ON scheduled_messages
     FOR EACH ROW
     EXECUTE FUNCTION set_updated_at();
+
+
+-- =====================================================================
+-- Régua de follow-up para leads de anúncio que pararam de responder
+-- =====================================================================
+-- Uma linha por conversa. "watch_message_id" ancora o período de silêncio
+-- atual: é o id da mensagem (do agente) que iniciou a espera. Sempre que o
+-- scan encontra uma mensagem nova nesse campo que NÃO é uma das que a
+-- própria automação enviou (step1_message_id / step2_message_id), reinicia
+-- o relógio — presume-se reengajamento manual do agente.
+CREATE TABLE IF NOT EXISTS followup_state (
+    id                     BIGSERIAL PRIMARY KEY,
+
+    account_id             INTEGER NOT NULL,
+    inbox_id               INTEGER NOT NULL,
+    conversation_id        INTEGER NOT NULL,
+    contact_id             INTEGER,
+    contact_name           TEXT,
+    contact_phone          TEXT,
+
+    is_ad_lead             BOOLEAN,             -- NULL = ainda não verificado
+
+    watch_message_id       BIGINT NOT NULL,     -- mensagem que iniciou o silêncio atual
+    last_agent_message_at  TIMESTAMPTZ NOT NULL,
+
+    step1_sent_at          TIMESTAMPTZ,
+    step1_message_id       BIGINT,
+
+    step2_sent_at          TIMESTAMPTZ,
+    step2_message_id       BIGINT,
+
+    status                 TEXT NOT NULL DEFAULT 'watching'
+                           CHECK (status IN ('watching', 'step1_sent', 'step2_sent', 'stopped', 'excluded')),
+
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    UNIQUE (account_id, conversation_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_followup_state_active
+    ON followup_state (status)
+    WHERE status IN ('watching', 'step1_sent');
+
+DROP TRIGGER IF EXISTS trg_followup_state_updated_at ON followup_state;
+CREATE TRIGGER trg_followup_state_updated_at
+    BEFORE UPDATE ON followup_state
+    FOR EACH ROW
+    EXECUTE FUNCTION set_updated_at();
+
+-- Mapeia inbox -> instância/token da Uazapi (usado só pelo passo 2, que
+-- envia direto pela Uazapi em vez de pelo Chatwoot). Preencha os tokens
+-- reais rodando os comandos do README — não deixe valores reais aqui
+-- neste arquivo versionado no git.
+CREATE TABLE IF NOT EXISTS whatsapp_instances (
+    inbox_id        INTEGER PRIMARY KEY,
+    instance_name   TEXT NOT NULL,
+    uazapi_token    TEXT NOT NULL
+);

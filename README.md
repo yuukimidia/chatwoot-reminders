@@ -24,9 +24,9 @@ Chatwoot (iframe) → Vercel (Next.js, API proxy) → n8n (webhooks + cron) → 
 
 ## Estrutura
 
-- `db/schema.sql` — schema do Postgres (tabela `scheduled_messages`)
+- `db/schema.sql` — schema do Postgres (`scheduled_messages`, `followup_state`, `whatsapp_instances`)
 - `dashboard-app/` — app Next.js que roda como Dashboard App do Chatwoot (deploy na Vercel)
-- `n8n/workflows/*.json` — 4 workflows importáveis no n8n
+- `n8n/workflows/*.json` — workflows importáveis no n8n (agendamento + follow-up automático)
 
 ## 1. Banco de dados
 
@@ -110,6 +110,80 @@ Em **cada uma das 3 contas** do Chatwoot:
    marca como `sent`. Se falhar (ex: número inválido, instância caiu), marca
    como `failed` com o motivo em `failure_reason`.
 5. É possível cancelar um lembrete `pending` a qualquer momento pela mesma tela.
+
+## 5. Follow-up automático de leads de anúncio
+
+Além do agendamento manual, existe uma segunda automação totalmente
+automática: para contatos que vieram de anúncio (Click-to-WhatsApp) e
+pararam de responder depois que o agente falou algo, o sistema manda:
+
+- **15 min de silêncio** → `"{Primeiro nome}?"` pela API do Chatwoot (fica
+  registrado normalmente na conversa).
+- **1 dia de silêncio** (contado do mesmo ponto, não do passo de 15 min) →
+  a foto configurada, em **visualização única**, enviada **direto pela
+  Uazapi** (não pelo Chatwoot — a API do Chatwoot não expõe esse recurso
+  específico do WhatsApp).
+
+Não precisa de nenhuma ação manual: o workflow `Followup - Scan and Send`
+varre sozinho as conversas abertas dos 3 inboxes a cada 15 minutos.
+
+### Como identifica quem é lead de anúncio
+
+A primeira mensagem da conversa é comparada com o padrão de texto que o
+próprio anúncio pré-preenche (`[PROTOCOLO ####]` ou "vim dos anúncios").
+Esse resultado fica guardado (`is_ad_lead`) e não é reconsultado depois —
+se a convenção de texto dos seus anúncios mudar, ajuste o regex no node
+**Check Ad Pattern** do workflow.
+
+### Como evita duplicar/repetir mensagens
+
+O workflow rastreia o **id da mensagem** que abriu o período de silêncio
+(`watch_message_id`). Quando ele mesmo manda o "Nome?" ou a foto, isso não
+é confundido com uma nova mensagem do agente — o relógio só reinicia se
+aparecer uma mensagem *diferente* das que a própria automação gerou (sinal
+de que o agente voltou a falar manualmente).
+
+### Quando para
+
+- Contato respondeu → marca `stopped`, nunca mais manda nada nessa janela
+  de silêncio.
+- Contato já tem consulta agendada no sistema de lembretes → é ignorado
+  em qualquer etapa.
+- Depois do passo 2 (foto), a conversa fica travada em `step2_sent`
+  (estado final) — não reinicia sozinha, mesmo que o agente mande outra
+  mensagem depois.
+
+### Configuração
+
+1. Rode de novo o `db/schema.sql` (é idempotente, só cria o que ainda não
+   existe) para criar as tabelas `followup_state` e `whatsapp_instances`.
+2. Preencha `whatsapp_instances` com os tokens reais da Uazapi (não deixe
+   isso no `schema.sql`, rode como um comando à parte):
+   ```sql
+   INSERT INTO whatsapp_instances (inbox_id, instance_name, uazapi_token) VALUES
+     (6, 'dr-sergio', 'TOKEN_DR_SERGIO'),
+     (5, 'drmoises', 'TOKEN_DRMOISES'),
+     (7, 'dra-letycia', 'TOKEN_DRA_LETYCIA')
+   ON CONFLICT (inbox_id) DO UPDATE SET
+     instance_name = EXCLUDED.instance_name,
+     uazapi_token = EXCLUDED.uazapi_token;
+   ```
+3. Adicione a variável de ambiente `UAZAPI_BASE_URL` (ex:
+   `https://sua-instancia.uazapi.com`) nos serviços `n8n_n8n_worker` e
+   `n8n_n8n_editor`, do mesmo jeito que as outras (`docker service update
+   --env-add ...`).
+4. Importe `n8n/workflows/followup-scan.json`. Ele tem **7 nodes de
+   Postgres** — aponte todos para a credencial `Postgres - Reminders`:
+   Stop If Watching, Upsert Watch, Save Ad Check, Compute Action, Get
+   Uazapi Token, Save Step1, Save Step2.
+5. A foto usada no passo 2 é `dashboard-app/public/followup-photo.jpg`,
+   servida pela URL pública da Vercel — para trocar, basta substituir o
+   arquivo e fazer o deploy de novo.
+6. Ative o workflow.
+
+> Este workflow assume `account_id = 1` fixo (todos os 3 clientes são
+> inboxes dentro da mesma conta do Chatwoot). Se isso não for verdade no
+> seu caso, ajuste as queries e a URL da API do Chatwoot que usam `/accounts/1/`.
 
 ## Pontos em aberto / decisões a confirmar
 

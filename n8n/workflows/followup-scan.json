@@ -1,0 +1,380 @@
+{
+  "name": "Followup - Scan and Send",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 15 }] }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 15 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [\n  { json: { inbox_id: 6 } },\n  { json: { inbox_id: 5 } },\n  { json: { inbox_id: 7 } }\n];"
+      },
+      "id": "inboxes",
+      "name": "Inboxes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/1/conversations",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "inbox_id", "value": "={{ $json.inbox_id }}" },
+            { "name": "status", "value": "open" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "api_access_token", "value": "={{ $env.CHATWOOT_API_TOKEN }}" }]
+        },
+        "options": {}
+      },
+      "id": "get-open-conversations",
+      "name": "Get Open Conversations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const payload = ($json.data && $json.data.payload) || [];\nreturn payload.map(conv => ({ json: conv }));"
+      },
+      "id": "split-conversations",
+      "name": "Split Conversations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.last_non_activity_message?.message_type }}",
+              "rightValue": 1,
+              "operator": { "type": "number", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-agent-last",
+      "name": "Agent Spoke Last?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE followup_state\nSET status = 'stopped', updated_at = now()\nWHERE account_id = $1 AND conversation_id = $2 AND status IN ('watching','step1_sent')\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{ [1, $json.id] }}"
+        }
+      },
+      "id": "stop-if-watching",
+      "name": "Stop If Watching",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1100, 220],
+      "credentials": { "postgres": { "id": "REPLACE_ME", "name": "Postgres - Reminders" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO followup_state (\n  account_id, inbox_id, conversation_id, contact_id, contact_name, contact_phone,\n  watch_message_id, last_agent_message_at, status\n)\nVALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8), 'watching')\nON CONFLICT (account_id, conversation_id) DO UPDATE SET\n  contact_name = EXCLUDED.contact_name,\n  contact_phone = EXCLUDED.contact_phone,\n  watch_message_id = CASE\n    WHEN followup_state.status IN ('excluded','step2_sent') THEN followup_state.watch_message_id\n    WHEN EXCLUDED.watch_message_id IN (followup_state.watch_message_id, COALESCE(followup_state.step1_message_id,-1), COALESCE(followup_state.step2_message_id,-1)) THEN followup_state.watch_message_id\n    ELSE EXCLUDED.watch_message_id\n  END,\n  last_agent_message_at = CASE\n    WHEN followup_state.status IN ('excluded','step2_sent') THEN followup_state.last_agent_message_at\n    WHEN EXCLUDED.watch_message_id IN (followup_state.watch_message_id, COALESCE(followup_state.step1_message_id,-1), COALESCE(followup_state.step2_message_id,-1)) THEN followup_state.last_agent_message_at\n    ELSE EXCLUDED.last_agent_message_at\n  END,\n  step1_sent_at = CASE\n    WHEN followup_state.status IN ('excluded','step2_sent') THEN followup_state.step1_sent_at\n    WHEN EXCLUDED.watch_message_id IN (followup_state.watch_message_id, COALESCE(followup_state.step1_message_id,-1), COALESCE(followup_state.step2_message_id,-1)) THEN followup_state.step1_sent_at\n    ELSE NULL\n  END,\n  step1_message_id = CASE\n    WHEN followup_state.status IN ('excluded','step2_sent') THEN followup_state.step1_message_id\n    WHEN EXCLUDED.watch_message_id IN (followup_state.watch_message_id, COALESCE(followup_state.step1_message_id,-1), COALESCE(followup_state.step2_message_id,-1)) THEN followup_state.step1_message_id\n    ELSE NULL\n  END,\n  step2_sent_at = CASE\n    WHEN followup_state.status IN ('excluded','step2_sent') THEN followup_state.step2_sent_at\n    WHEN EXCLUDED.watch_message_id IN (followup_state.watch_message_id, COALESCE(followup_state.step1_message_id,-1), COALESCE(followup_state.step2_message_id,-1)) THEN followup_state.step2_sent_at\n    ELSE NULL\n  END,\n  step2_message_id = CASE\n    WHEN followup_state.status IN ('excluded','step2_sent') THEN followup_state.step2_message_id\n    WHEN EXCLUDED.watch_message_id IN (followup_state.watch_message_id, COALESCE(followup_state.step1_message_id,-1), COALESCE(followup_state.step2_message_id,-1)) THEN followup_state.step2_message_id\n    ELSE NULL\n  END,\n  status = CASE\n    WHEN followup_state.status IN ('excluded','step2_sent') THEN followup_state.status\n    WHEN EXCLUDED.watch_message_id IN (followup_state.watch_message_id, COALESCE(followup_state.step1_message_id,-1), COALESCE(followup_state.step2_message_id,-1)) THEN followup_state.status\n    ELSE 'watching'\n  END,\n  updated_at = now()\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{ [1, $json.inbox_id, $json.id, $json.meta.sender.id, $json.meta.sender.name, $json.meta.sender.phone_number, $json.last_non_activity_message.id, $json.last_non_activity_message.created_at] }}"
+        }
+      },
+      "id": "upsert-watch",
+      "name": "Upsert Watch",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1100, -40],
+      "credentials": { "postgres": { "id": "REPLACE_ME", "name": "Postgres - Reminders" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.is_ad_lead === null }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-needs-ad-check",
+      "name": "Needs Ad Check?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1320, -40]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/1/conversations/{{ $json.conversation_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "api_access_token", "value": "={{ $env.CHATWOOT_API_TOKEN }}" }]
+        },
+        "options": {}
+      },
+      "id": "get-messages",
+      "name": "Get Messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, -160]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const msgs = $json.payload || ($json.data && $json.data.payload) || [];\nconst sorted = [...msgs].sort((a, b) => a.created_at - b.created_at);\nconst first = sorted[0];\nconst text = (first && first.content ? first.content : '').toLowerCase();\nconst isAdLead = /\\[protocolo|vim dos an[uú]ncios/i.test(text);\nconst state = $('Upsert Watch').item.json;\nreturn { json: { ...state, is_ad_lead: isAdLead } };"
+      },
+      "id": "check-ad-pattern",
+      "name": "Check Ad Pattern",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, -160]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE followup_state\nSET is_ad_lead = $1,\n    status = CASE WHEN $1 = false THEN 'excluded' ELSE status END,\n    updated_at = now()\nWHERE id = $2\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{ [$json.is_ad_lead, $json.id] }}"
+        }
+      },
+      "id": "save-ad-check",
+      "name": "Save Ad Check",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1980, -160],
+      "credentials": { "postgres": { "id": "REPLACE_ME", "name": "Postgres - Reminders" } }
+    },
+    {
+      "parameters": { "mode": "append" },
+      "id": "merge-ad-check",
+      "name": "Merge Ad Check",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [2200, -40]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT fs.*,\n  EXISTS(\n    SELECT 1 FROM scheduled_messages sm\n    WHERE sm.account_id = fs.account_id AND sm.conversation_id = fs.conversation_id AND sm.status IN ('pending','sent')\n  ) AS already_booked,\n  CASE\n    WHEN fs.status IN ('excluded','stopped','step2_sent') THEN 'wait'\n    WHEN now() - fs.last_agent_message_at >= interval '15 minutes' AND fs.step1_sent_at IS NULL THEN 'send_step1'\n    WHEN now() - fs.last_agent_message_at >= interval '1 day' AND fs.step1_sent_at IS NOT NULL AND fs.step2_sent_at IS NULL THEN 'send_step2'\n    ELSE 'wait'\n  END AS action\nFROM followup_state fs\nWHERE fs.id = $1;",
+        "options": {
+          "queryReplacement": "={{ [$json.id] }}"
+        }
+      },
+      "id": "compute-action",
+      "name": "Compute Action",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2420, -40],
+      "credentials": { "postgres": { "id": "REPLACE_ME", "name": "Postgres - Reminders" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "leftValue": "={{ $json.is_ad_lead }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } },
+            { "leftValue": "={{ $json.already_booked }}", "rightValue": false, "operator": { "type": "boolean", "operation": "equals" } },
+            { "leftValue": "={{ $json.action }}", "rightValue": "wait", "operator": { "type": "string", "operation": "notEquals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-actionable",
+      "name": "Actionable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2640, -40]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "leftValue": "={{ $json.action }}", "rightValue": "send_step1", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-is-step1",
+      "name": "Is Step1?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2860, -80]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const name = ($json.contact_name || '').replace(/^~/, '').trim();\nconst firstName = name.split(' ')[0] || 'Oi';\nreturn { json: { ...$json, first_name: firstName } };"
+      },
+      "id": "first-name",
+      "name": "First Name",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3080, -160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/1/conversations/{{ $json.conversation_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "api_access_token", "value": "={{ $env.CHATWOOT_API_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.first_name + '?', message_type: 'outgoing' }) }}",
+        "options": {}
+      },
+      "id": "send-nudge",
+      "name": "Send Nudge",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3300, -160]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE followup_state\nSET step1_sent_at = now(), step1_message_id = $1, status = 'step1_sent', updated_at = now()\nWHERE id = $2\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{ [$json.id, $('Compute Action').item.json.id] }}"
+        }
+      },
+      "id": "save-step1",
+      "name": "Save Step1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3520, -160],
+      "credentials": { "postgres": { "id": "REPLACE_ME", "name": "Postgres - Reminders" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "leftValue": "={{ $json.action }}", "rightValue": "send_step2", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-is-step2",
+      "name": "Is Step2?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3080, 40]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT wi.uazapi_token\nFROM (SELECT $1::integer AS inbox_id) AS want\nLEFT JOIN whatsapp_instances wi ON wi.inbox_id = want.inbox_id;",
+        "options": {
+          "queryReplacement": "={{ [$json.inbox_id] }}"
+        }
+      },
+      "id": "get-uazapi-token",
+      "name": "Get Uazapi Token",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3300, 40],
+      "credentials": { "postgres": { "id": "REPLACE_ME", "name": "Postgres - Reminders" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.UAZAPI_BASE_URL }}/send/media",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "token", "value": "={{ $json.uazapi_token }}" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Actionable?').item.json.contact_phone.replace(/\\D/g, ''), type: 'image', file: 'https://chatwoot-reminders.vercel.app/followup-photo.jpg', viewOnce: true, caption: '' }) }}",
+        "options": {}
+      },
+      "id": "send-photo",
+      "name": "Send Photo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3520, 40]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE followup_state\nSET step2_sent_at = now(), status = 'step2_sent', updated_at = now()\nWHERE id = $1\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{ [$('Actionable?').item.json.id] }}"
+        }
+      },
+      "id": "save-step2",
+      "name": "Save Step2",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3740, 40],
+      "credentials": { "postgres": { "id": "REPLACE_ME", "name": "Postgres - Reminders" } }
+    }
+  ],
+  "connections": {
+    "Every 15 min": { "main": [[{ "node": "Inboxes", "type": "main", "index": 0 }]] },
+    "Inboxes": { "main": [[{ "node": "Get Open Conversations", "type": "main", "index": 0 }]] },
+    "Get Open Conversations": { "main": [[{ "node": "Split Conversations", "type": "main", "index": 0 }]] },
+    "Split Conversations": { "main": [[{ "node": "Agent Spoke Last?", "type": "main", "index": 0 }]] },
+    "Agent Spoke Last?": {
+      "main": [
+        [{ "node": "Upsert Watch", "type": "main", "index": 0 }],
+        [{ "node": "Stop If Watching", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upsert Watch": { "main": [[{ "node": "Needs Ad Check?", "type": "main", "index": 0 }]] },
+    "Needs Ad Check?": {
+      "main": [
+        [{ "node": "Get Messages", "type": "main", "index": 0 }],
+        [{ "node": "Merge Ad Check", "type": "main", "index": 1 }]
+      ]
+    },
+    "Get Messages": { "main": [[{ "node": "Check Ad Pattern", "type": "main", "index": 0 }]] },
+    "Check Ad Pattern": { "main": [[{ "node": "Save Ad Check", "type": "main", "index": 0 }]] },
+    "Save Ad Check": { "main": [[{ "node": "Merge Ad Check", "type": "main", "index": 0 }]] },
+    "Merge Ad Check": { "main": [[{ "node": "Compute Action", "type": "main", "index": 0 }]] },
+    "Compute Action": { "main": [[{ "node": "Actionable?", "type": "main", "index": 0 }]] },
+    "Actionable?": {
+      "main": [
+        [
+          { "node": "Is Step1?", "type": "main", "index": 0 },
+          { "node": "Is Step2?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Is Step1?": { "main": [[{ "node": "First Name", "type": "main", "index": 0 }]] },
+    "First Name": { "main": [[{ "node": "Send Nudge", "type": "main", "index": 0 }]] },
+    "Send Nudge": { "main": [[{ "node": "Save Step1", "type": "main", "index": 0 }]] },
+    "Is Step2?": { "main": [[{ "node": "Get Uazapi Token", "type": "main", "index": 0 }]] },
+    "Get Uazapi Token": { "main": [[{ "node": "Send Photo", "type": "main", "index": 0 }]] },
+    "Send Photo": { "main": [[{ "node": "Save Step2", "type": "main", "index": 0 }]] }
+  }
+}
