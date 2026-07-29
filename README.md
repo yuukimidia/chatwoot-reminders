@@ -172,10 +172,14 @@ de que o agente voltou a falar manualmente).
    `https://sua-instancia.uazapi.com`) nos serviços `n8n_n8n_worker` e
    `n8n_n8n_editor`, do mesmo jeito que as outras (`docker service update
    --env-add ...`).
-4. Importe `n8n/workflows/followup-scan.json`. Ele tem **8 nodes de
+4. Importe `n8n/workflows/followup-scan.json`. Ele tem **7 nodes de
    Postgres** — aponte todos para a credencial `Postgres - Reminders`:
-   Get Config, Stop If Watching, Upsert Watch, Save Ad Check, Compute
-   Action, Get Uazapi Token, Save Step1, Save Step2.
+   Stop If Watching, Upsert Watch, Save Ad Check, Compute Action, Get
+   Uazapi Token, Save Step1, Save Step2. (O interruptor "ativo/inativo" e
+   os textos configuráveis são lidos direto nas queries de Compute Action
+   e Get Uazapi Token — evita referenciar um node distante lá do início do
+   fluxo, que quebra o rastreamento de item do n8n quando cruza os pontos
+   onde o fluxo se divide em 3 inboxes e depois se reagrupa.)
 5. Importe também `followup-overview.json`, `followup-update-config.json`
    e `followup-pause.json` — usados pela tela de monitoramento (próxima
    seção). Aponte a credencial Postgres nos respectivos nodes.

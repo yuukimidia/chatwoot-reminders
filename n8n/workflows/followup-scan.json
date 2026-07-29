@@ -13,36 +13,6 @@
     },
     {
       "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT * FROM followup_config WHERE id = 1;",
-        "options": {}
-      },
-      "id": "get-config",
-      "name": "Get Config",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [220, 0],
-      "credentials": { "postgres": { "id": "REPLACE_ME", "name": "Postgres - Reminders" } }
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
-          "conditions": [
-            { "leftValue": "={{ $json.enabled }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "if-enabled",
-      "name": "Enabled?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [440, 0]
-    },
-    {
-      "parameters": {
         "mode": "runOnceForAllItems",
         "jsCode": "return [\n  { json: { inbox_id: 6 } },\n  { json: { inbox_id: 5 } },\n  { json: { inbox_id: 7 } }\n];"
       },
@@ -50,7 +20,7 @@
       "name": "Inboxes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [660, 0]
+      "position": [220, 0]
     },
     {
       "parameters": {
@@ -209,7 +179,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT fs.*,\n  EXISTS(\n    SELECT 1 FROM scheduled_messages sm\n    WHERE sm.account_id = fs.account_id AND sm.conversation_id = fs.conversation_id AND sm.status IN ('pending','sent')\n  ) AS already_booked,\n  CASE\n    WHEN fs.status IN ('excluded','stopped','step2_sent') THEN 'wait'\n    WHEN now() - fs.last_agent_message_at >= interval '15 minutes' AND fs.step1_sent_at IS NULL THEN 'send_step1'\n    WHEN now() - fs.last_agent_message_at >= interval '1 day' AND fs.step1_sent_at IS NOT NULL AND fs.step2_sent_at IS NULL THEN 'send_step2'\n    ELSE 'wait'\n  END AS action\nFROM followup_state fs\nWHERE fs.id = $1;",
+        "query": "SELECT fs.*,\n  fc.step1_message_template, fc.step2_photo_url, fc.step2_caption,\n  EXISTS(\n    SELECT 1 FROM scheduled_messages sm\n    WHERE sm.account_id = fs.account_id AND sm.conversation_id = fs.conversation_id AND sm.status IN ('pending','sent')\n  ) AS already_booked,\n  CASE\n    WHEN NOT fc.enabled THEN 'wait'\n    WHEN fs.status IN ('excluded','stopped','step2_sent') THEN 'wait'\n    WHEN now() - fs.last_agent_message_at >= interval '15 minutes' AND fs.step1_sent_at IS NULL THEN 'send_step1'\n    WHEN now() - fs.last_agent_message_at >= interval '1 day' AND fs.step1_sent_at IS NOT NULL AND fs.step2_sent_at IS NULL THEN 'send_step2'\n    ELSE 'wait'\n  END AS action\nFROM followup_state fs\nCROSS JOIN followup_config fc\nWHERE fs.id = $1 AND fc.id = 1;",
         "options": {
           "queryReplacement": "={{ [$json.id] }}"
         }
@@ -260,7 +230,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const name = ($json.contact_name || '').replace(/^~/, '').trim();\nconst firstName = name.split(' ')[0] || 'Oi';\nconst config = $('Get Config').item.json;\nconst template = config.step1_message_template || '{{name}}?';\nconst message = template.replace(/\\{\\{\\s*name\\s*\\}\\}/gi, firstName);\nreturn { json: { ...$json, first_name: firstName, step1_message: message } };"
+        "jsCode": "const name = ($json.contact_name || '').replace(/^~/, '').trim();\nconst firstName = name.split(' ')[0] || 'Oi';\nconst template = $json.step1_message_template || '{{name}}?';\nconst message = template.replace(/\\{\\{\\s*name\\s*\\}\\}/gi, firstName);\nreturn { json: { ...$json, first_name: firstName, step1_message: message } };"
       },
       "id": "first-name",
       "name": "First Name",
@@ -322,7 +292,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT wi.uazapi_token\nFROM (SELECT $1::integer AS inbox_id) AS want\nLEFT JOIN whatsapp_instances wi ON wi.inbox_id = want.inbox_id;",
+        "query": "SELECT wi.uazapi_token, fc.step2_photo_url, fc.step2_caption\nFROM (SELECT $1::integer AS inbox_id) AS want\nLEFT JOIN whatsapp_instances wi ON wi.inbox_id = want.inbox_id\nCROSS JOIN followup_config fc\nWHERE fc.id = 1;",
         "options": {
           "queryReplacement": "={{ [$json.inbox_id] }}"
         }
@@ -344,7 +314,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ number: $('Actionable?').item.json.contact_phone.replace(/\\D/g, ''), type: 'image', file: $('Get Config').item.json.step2_photo_url, viewOnce: true, caption: $('Get Config').item.json.step2_caption }) }}",
+        "jsonBody": "={{ JSON.stringify({ number: $('Actionable?').item.json.contact_phone.replace(/\\D/g, ''), type: 'image', file: $json.step2_photo_url, viewOnce: true, caption: $json.step2_caption }) }}",
         "options": {}
       },
       "id": "send-photo",
@@ -370,9 +340,7 @@
     }
   ],
   "connections": {
-    "Every 15 min": { "main": [[{ "node": "Get Config", "type": "main", "index": 0 }]] },
-    "Get Config": { "main": [[{ "node": "Enabled?", "type": "main", "index": 0 }]] },
-    "Enabled?": { "main": [[{ "node": "Inboxes", "type": "main", "index": 0 }]] },
+    "Every 15 min": { "main": [[{ "node": "Inboxes", "type": "main", "index": 0 }]] },
     "Inboxes": { "main": [[{ "node": "Get Open Conversations", "type": "main", "index": 0 }]] },
     "Get Open Conversations": { "main": [[{ "node": "Split Conversations", "type": "main", "index": 0 }]] },
     "Split Conversations": { "main": [[{ "node": "Agent Spoke Last?", "type": "main", "index": 0 }]] },
