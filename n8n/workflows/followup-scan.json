@@ -228,6 +228,26 @@
       "position": [2860, -80]
     },
     {
+      "parameters": { "batchSize": 1, "options": {} },
+      "id": "loop-step1",
+      "name": "Loop Step1",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [3080, -80]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "wait-step1",
+      "name": "Wait Step1",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [3740, -160]
+    },
+    {
       "parameters": {
         "mode": "runOnceForEachItem",
         "jsCode": "const name = ($json.contact_name || '').replace(/^~/, '').trim();\nconst firstName = name.split(' ')[0] || 'Oi';\nconst template = $json.step1_message_template || '{{name}}?';\nconst message = template.replace(/\\{\\{\\s*name\\s*\\}\\}/gi, firstName);\nreturn { json: { ...$json, first_name: firstName, step1_message: message } };"
@@ -288,6 +308,26 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [3080, 40]
+    },
+    {
+      "parameters": { "batchSize": 1, "options": {} },
+      "id": "loop-step2",
+      "name": "Loop Step2",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [3080, 120]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "wait-step2",
+      "name": "Wait Step2",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [3740, 200]
     },
     {
       "parameters": {
@@ -370,11 +410,17 @@
         ]
       ]
     },
-    "Is Step1?": { "main": [[{ "node": "First Name", "type": "main", "index": 0 }]] },
+    "Is Step1?": { "main": [[{ "node": "Loop Step1", "type": "main", "index": 0 }]] },
+    "Loop Step1": { "main": [[], [{ "node": "First Name", "type": "main", "index": 0 }]] },
     "First Name": { "main": [[{ "node": "Send Nudge", "type": "main", "index": 0 }]] },
     "Send Nudge": { "main": [[{ "node": "Save Step1", "type": "main", "index": 0 }]] },
-    "Is Step2?": { "main": [[{ "node": "Get Uazapi Token", "type": "main", "index": 0 }]] },
+    "Save Step1": { "main": [[{ "node": "Wait Step1", "type": "main", "index": 0 }]] },
+    "Wait Step1": { "main": [[{ "node": "Loop Step1", "type": "main", "index": 0 }]] },
+    "Is Step2?": { "main": [[{ "node": "Loop Step2", "type": "main", "index": 0 }]] },
+    "Loop Step2": { "main": [[], [{ "node": "Get Uazapi Token", "type": "main", "index": 0 }]] },
     "Get Uazapi Token": { "main": [[{ "node": "Send Photo", "type": "main", "index": 0 }]] },
-    "Send Photo": { "main": [[{ "node": "Save Step2", "type": "main", "index": 0 }]] }
+    "Send Photo": { "main": [[{ "node": "Save Step2", "type": "main", "index": 0 }]] },
+    "Save Step2": { "main": [[{ "node": "Wait Step2", "type": "main", "index": 0 }]] },
+    "Wait Step2": { "main": [[{ "node": "Loop Step2", "type": "main", "index": 0 }]] }
   }
 }
